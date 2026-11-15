@@ -1,48 +1,49 @@
+mod process;
+
 use std::fs;
+use std::time::Instant;
 
-use std::time::{Duration, Instant};
+mod detect;
 
-
- fn read_name(pid: u32) -> Option<String> {
-        let path = format!("/proc/{pid}/comm");
-        let name = std::fs::read_to_string(path).ok()?;
-        Some(name.trim().to_string())
-    }
-fn main() {
+fn main () {
     let start = Instant::now();
-    let mut read_name_total = Duration::ZERO;
+    let mut count = 0;
 
-    let mut count =0;
-    let entries = fs::read_dir("/proc").expect("Cant read /proc");
-    // proc means  the process filesystem it is the virtual filesystem 
-   
-    for entry in entries.flatten() {
+let entries = fs::read_dir("/proc").expect("Cant read /proc");
+
+for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        
+
         let pid = match name.parse::<u32>() {
             Ok(n) => n,
             Err(_) => continue,
         };
 
-        let t = Instant::now();
-        let result = read_name(pid);
-        read_name_total += t.elapsed();
-
-
-
-
-        match read_name(pid) {
-            Some(name)=> {
-                println!("PID: {pid:?},Name: {name}");
-            }
+        let name = match process::read_name(pid) {
+            Some(n) => n,
             None => continue,
+        };
+        let info = match process::read_stat(pid) {
+            Some(i) => i,
+            None => continue,
+        };
 
-            
+        println!(
+            "PID: {pid:>6}  PPID: {ppid:>6}  [{state}]  {name}",
+            ppid = info.ppid,
+            state = info.state,
+        );
+        count += 1;
+
+        // Detection: look up the PARENT's name, then test the rule.
+        if let Some(parent_name) = process::read_name(info.ppid) {
+            if detect::is_suspicious(&parent_name, &name) {
+                println!("   ⚠️  SUSPICIOUS: {parent_name} -> {name}");
+            }
         }
     }
-    println!("Total processes found: {count}");
-    println!("Time inside read_name: {:?}", read_name_total);
-    println!("Total time taken: {:?}", start.elapsed());
 
+    println!("\nTotal processes found: {count}");
+    println!("Scan time: {:?}", start.elapsed());
 }
